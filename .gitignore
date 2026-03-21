@@ -1,0 +1,9 @@
+.env
+elasticsearch_data/
+reports/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.vscode/
+*.log

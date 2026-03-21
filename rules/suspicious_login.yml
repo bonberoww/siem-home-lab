@@ -1,0 +1,69 @@
+# ─── Règle de détection : Connexion Suspecte ─────────────────────────────────
+# Détecte les connexions anormales — root, heures creuses, IP inconnues
+
+rule:
+  id: AUTH-002
+  name: Suspicious Login Detected
+  severity: CRITICAL
+  category: authentication
+
+description: >
+  Détecte les connexions suspectes sur le système :
+  connexion root réussie, connexion en dehors des heures ouvrées,
+  ou connexion depuis une IP jamais vue auparavant.
+
+detection:
+  conditions:
+    - id: root_login
+      description: Connexion SSH réussie avec le compte root
+      filter:
+        alert_type: root_login
+      severity: CRITICAL
+
+    - id: off_hours_login
+      description: Connexion réussie entre 22h et 6h
+      filter:
+        alert_type: ssh_success
+      timeframe:
+        start: "22:00"
+        end: "06:00"
+      severity: HIGH
+
+    - id: new_ip_login
+      description: Connexion réussie depuis une IP jamais vue
+      filter:
+        alert_type: ssh_success
+      condition: first_seen(src_ip)
+      severity: MEDIUM
+
+response:
+  - action: alert
+    channel: webhook
+    message: >
+      ALERTE AUTH-002 — Connexion suspecte détectée
+      Type        : {condition_id}
+      Utilisateur : {username}
+      IP source   : {src_ip}
+      Pays        : {geoip.country_name}
+      Timestamp   : {timestamp}
+      Sévérité    : {severity}
+
+  - action: log
+    output: reports/suspicious_login_{timestamp}.txt
+
+  - action: notify
+    condition: root_login
+    priority: immediate
+
+mitre_attack:
+  tactic: Initial Access
+  technique: T1078
+  subtechnique: T1078.001 — Valid Accounts / Default Accounts
+
+references:
+  - https://attack.mitre.org/techniques/T1078/
+  - https://www.elastic.co/guide/en/siem/guide/current/suspicious-login-activity.html
+
+author: bonberoww
+version: 1.0.0
+created: 2025-03-01
