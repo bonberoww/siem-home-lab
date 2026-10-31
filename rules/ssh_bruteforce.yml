@@ -1,6 +1,7 @@
 # ─── Règle de détection : SSH Brute Force ────────────────────────────────────
 # Déclenche une alerte si plus de 5 tentatives SSH échouées
-# depuis la même IP en moins de 60 secondes
+# depuis la même IP en moins de 60 secondes.
+# Exécutée par scripts/detect.py
 
 rule:
   id: SSH-001
@@ -11,27 +12,19 @@ rule:
 description: >
   Détecte les tentatives de brute force SSH en surveillant
   les échecs d'authentification répétés depuis une même IP source.
-  Seuil : 5 tentatives échouées en 60 secondes.
+  Seuil : plus de 5 tentatives échouées en 60 secondes.
 
 detection:
-  condition: count(failed_ssh) > 5
-  timeframe: 60s
-  group_by: src_ip
+  type: threshold
+  index: siem-logs-*
   filter:
-    alert_type: ssh_bruteforce
+    alert_type: ssh_failed
+  group_by: src_ip
+  threshold: 5          # alerte si count > threshold
+  timeframe: 60         # secondes (fenêtre glissante)
 
 response:
-  - action: alert
-    channel: webhook
-    message: >
-      ALERTE SSH-001 — Brute force détecté
-      IP source   : {src_ip}
-      Tentatives  : {count}
-      Utilisateur : {username}
-      Timestamp   : {timestamp}
-
-  - action: log
-    output: reports/ssh_bruteforce_{timestamp}.txt
+  message: "Brute force SSH : {count} échecs en {timeframe}s depuis {src_ip} (utilisateur ciblé : {username})"
 
 mitre_attack:
   tactic: Credential Access
@@ -40,8 +33,7 @@ mitre_attack:
 
 references:
   - https://attack.mitre.org/techniques/T1110/001/
-  - https://www.elastic.co/guide/en/siem/guide/current/ssh-brute-force.html
 
 author: bonberoww
-version: 1.0.0
+version: 1.1.0
 created: 2025-03-01

@@ -1,11 +1,8 @@
-
-
 # ─── SIEM Home Lab — Stack ELK ───────────────────────────────────────────────
 # Author  : bonberoww
-# Usage   : docker-compose up -d
+# Usage   : cp .env.example .env  (puis remplir les mots de passe)
+#           docker compose up -d
 # ─────────────────────────────────────────────────────────────────────────────
-
-version: '3.8'
 
 services:
 
@@ -13,37 +10,53 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
     container_name: elasticsearch
     environment:
-      - node.name=elasticsearch
-      - cluster.name=siem-lab
-      - discovery.type=single-node
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-      - xpack.security.enabled=true
-      - xpack.security.http.ssl.enabled=false
-      - xpack.license.self_generated.type=basic
       - ES_JAVA_OPTS=-Xms1g -Xmx1g
     volumes:
+      - ./elk/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
       - elasticsearch_data:/usr/share/elasticsearch/data
+    # Ports liés à 127.0.0.1 : le lab n'est pas joignable depuis le réseau local
     ports:
-      - "9200:9200"
+      - "127.0.0.1:9200:9200"
     networks:
       - siem-net
     healthcheck:
-      test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health | grep -q 'green\\|yellow'"]
-      interval: 30s
+      test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health | grep -q '\"status\":\"\\(green\\|yellow\\)\"'"]
+      interval: 15s
       timeout: 10s
-      retries: 5
+      retries: 20
+
+  # Conteneur one-shot : définit le mot de passe du compte kibana_system,
+  # sans quoi Kibana ne peut pas s'authentifier auprès d'Elasticsearch.
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: siem-setup
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
+    command: >
+      bash -c '
+      until curl -s -X POST -u "elastic:$${ELASTIC_PASSWORD}" -H "Content-Type: application/json" http://elasticsearch:9200/_security/user/kibana_system/_password -d "{\"password\":\"$${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do echo "En attente d Elasticsearch..."; sleep 5; done;
+      echo "Mot de passe kibana_system configure."
+      '
+    networks:
+      - siem-net
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
 
   logstash:
     image: docker.elastic.co/logstash/logstash:8.12.0
     container_name: logstash
-    volumes:
-      - ./elk/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
-    ports:
-      - "5044:5044"
-      - "5000:5000/udp"
     environment:
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - xpack.monitoring.enabled=false
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - ./elk/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    ports:
+      - "127.0.0.1:5000:5000/tcp"
+      - "127.0.0.1:5000:5000/udp"
     networks:
       - siem-net
     depends_on:
@@ -54,19 +67,17 @@ services:
     image: docker.elastic.co/kibana/kibana:8.12.0
     container_name: kibana
     environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - ELASTICSEARCH_USERNAME=kibana_system
-      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
-      - xpack.security.enabled=true
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
+      - KIBANA_ENCRYPTION_KEY=${KIBANA_ENCRYPTION_KEY}
     volumes:
       - ./elk/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
     ports:
-      - "5601:5601"
+      - "127.0.0.1:5601:5601"
     networks:
       - siem-net
     depends_on:
-      elasticsearch:
-        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
 
 volumes:
   elasticsearch_data:

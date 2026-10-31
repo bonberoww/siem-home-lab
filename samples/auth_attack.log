@@ -1,0 +1,20 @@
+Oct 31 21:10:19 srv-lab01 sshd[8796]: Accepted publickey for alessandro from 192.168.56.10 port 52114 ssh2
+Oct 31 21:10:23 srv-lab01 sudo[8797]: alessandro : TTY=pts/0 ; PWD=/home/alessandro ; USER=root ; COMMAND=/usr/bin/apt update
+Oct 31 21:10:24 srv-lab01 sshd[8798]: Invalid user admin from 198.51.100.23 port 40834
+Oct 31 21:10:25 srv-lab01 sshd[8799]: Invalid user test from 198.51.100.23 port 42283
+Oct 31 21:10:25 srv-lab01 sshd[8800]: Invalid user oracle from 198.51.100.23 port 45993
+Oct 31 21:10:26 srv-lab01 sshd[8801]: Invalid user postgres from 198.51.100.23 port 43297
+Oct 31 21:10:27 srv-lab01 sshd[8802]: Failed password for root from 203.0.113.45 port 43141 ssh2
+Oct 31 21:10:28 srv-lab01 sshd[8803]: Failed password for root from 203.0.113.45 port 45354 ssh2
+Oct 31 21:10:29 srv-lab01 sshd[8804]: Failed password for root from 203.0.113.45 port 46158 ssh2
+Oct 31 21:10:29 srv-lab01 sshd[8805]: Failed password for root from 203.0.113.45 port 54604 ssh2
+Oct 31 21:10:30 srv-lab01 sshd[8806]: Failed password for root from 203.0.113.45 port 56103 ssh2
+Oct 31 21:10:31 srv-lab01 sshd[8807]: Failed password for root from 203.0.113.45 port 57784 ssh2
+Oct 31 21:10:32 srv-lab01 sshd[8808]: Failed password for root from 203.0.113.45 port 48352 ssh2
+Oct 31 21:10:33 srv-lab01 sshd[8809]: Failed password for root from 203.0.113.45 port 56542 ssh2
+Oct 31 21:10:33 srv-lab01 sshd[8810]: Failed password for root from 203.0.113.45 port 42605 ssh2
+Oct 31 21:10:34 srv-lab01 sshd[8811]: Failed password for root from 203.0.113.45 port 59968 ssh2
+Oct 31 21:10:35 srv-lab01 sshd[8812]: Failed password for root from 203.0.113.45 port 43357 ssh2
+Oct 31 21:10:36 srv-lab01 sshd[8813]: Failed password for root from 203.0.113.45 port 47885 ssh2
+Oct 31 21:10:38 srv-lab01 sshd[8814]: Accepted password for root from 203.0.113.45 port 43509 ssh2
+Oct 31 21:10:43 srv-lab01 su[8815]: FAILED SU (to root) www-data on pts/1

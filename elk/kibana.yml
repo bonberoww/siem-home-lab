@@ -1,8 +1,10 @@
 # ─── Kibana Configuration — SIEM Home Lab ────────────────────────────────────
+# Les secrets viennent du fichier .env (via docker-compose), jamais en dur ici.
 
 server.name: kibana
 server.host: 0.0.0.0
 server.port: 5601
+server.publicBaseUrl: "http://localhost:5601"
 
 # Elasticsearch
 elasticsearch.hosts: ["http://elasticsearch:9200"]
@@ -10,21 +12,7 @@ elasticsearch.username: "kibana_system"
 elasticsearch.password: "${KIBANA_PASSWORD}"
 
 # Sécurité
-xpack.security.enabled: true
-xpack.encryptedSavedObjects.encryptionKey: "siem-lab-key-min-32-characters-long"
+xpack.encryptedSavedObjects.encryptionKey: "${KIBANA_ENCRYPTION_KEY}"
 
 # Interface
-i18n.locale: "fr"
-server.publicBaseUrl: "http://localhost:5601"
-
-# Logging
-logging:
-  appenders:
-    file:
-      type: file
-      fileName: /usr/share/kibana/logs/kibana.log
-      layout:
-        type: json
-  root:
-    appenders: [default, file]
-    level: warn
+i18n.locale: "fr-FR"
