@@ -1,140 +1,68 @@
-# Write-up — Détecter un brute force SSH suivi d'une compromission root
+# Write-up : détecter un brute force SSH
 
-**Projet :** SIEM Home Lab · **Domaine :** Blue Team / détection · **Date du test :** 31/10/2026
-**Stack :** Elasticsearch, Logstash, Kibana 8.12 (Docker Compose), Python
+Test du SIEM Home Lab le 31/10/2026, avec la stack Elasticsearch, Logstash et Kibana 8.12 sous Docker.
 
----
+## Ce que je voulais vérifier
 
-## 1. Objectif
+Que le lab détecte une attaque classique sur un serveur Linux : un brute force SSH sur le compte root, suivi d'une connexion réussie. Autrement dit : si ça arrivait vraiment, est-ce que le SIEM me préviendrait ?
 
-Vérifier que le lab détecte de bout en bout un scénario d'attaque classique sur un serveur Linux :
-reconnaissance, brute force SSH, connexion root réussie, puis tentative d'élévation de privilèges.
+## Le scénario
 
-La question à laquelle je voulais répondre : **si ça arrivait sur un vrai serveur, est-ce que mon SIEM me préviendrait, et avec quel niveau de détail ?**
+Le script `scripts/simulate_attack.py` génère 20 lignes d'`auth.log` pour un serveur fictif, `srv-lab01`. Les adresses IP viennent des plages réservées à la documentation (RFC 5737) : aucun vrai système n'est visé.
 
-## 2. Environnement
-
-| Élément | Valeur |
-|---|---|
-| Serveur simulé | `srv-lab01` |
-| Poste admin légitime | `192.168.56.10` |
-| IP de reconnaissance | `198.51.100.23` (plage de documentation RFC 5737) |
-| IP d'attaque | `203.0.113.45` (plage de documentation RFC 5737) |
-| Générateur | `scripts/simulate_attack.py` |
-| Moteur de détection | `scripts/detect.py` + règles `rules/*.yml` |
-
-Les logs sont générés au format `auth.log` Debian/Ubuntu, avec des IP réservées à la documentation : aucun système réel n'est visé.
-
-## 3. Scénario
-
-| # | Étape | Lignes de log | Technique MITRE |
-|---|---|---|---|
-| 1 | L'admin se connecte par clé et lance un `sudo apt update` | 2 | — (activité normale) |
-| 2 | Reconnaissance : 4 comptes inexistants testés (`admin`, `test`, `oracle`, `postgres`) | 4 | T1110.003 |
-| 3 | Brute force du compte `root` : 12 échecs en ~10 secondes | 12 | T1110.001 |
-| 4 | Connexion root réussie depuis l'IP d'attaque | 1 | T1078.003 |
-| 5 | `su` échoué depuis le compte `www-data` | 1 | T1548 |
+1. L'admin se connecte avec sa clé et lance un `sudo`.
+2. Quatre comptes inexistants sont testés (`admin`, `test`, `oracle`, `postgres`).
+3. 12 échecs de mot de passe sur `root` en une dizaine de secondes.
+4. Une connexion root réussit, depuis la même IP.
+5. Un `su` échoue depuis le compte `www-data`.
 
 ```bash
 python scripts/simulate_attack.py --send
-```
-
-## 4. Ingestion et parsing
-
-Les 20 lignes arrivent dans l'index `siem-logs-*`. Logstash les découpe avec grok et leur attribue un type :
-
-| alert_type | Nombre | Sévérité |
-|---|---|---|
-| `ssh_failed` | 12 | HIGH |
-| `ssh_invalid_user` | 4 | MEDIUM |
-| `root_login` | 1 | CRITICAL |
-| `ssh_success` | 1 | INFO |
-| `su_failed` | 1 | CRITICAL |
-| `sudo` | 1 | MEDIUM |
-| **Lignes non parsées** | **0** | |
-
-Exemple d'événement après parsing (connexion root) :
-
-```json
-{
-  "message": "Oct 31 21:06:58 srv-lab01 sshd[6308]: Accepted password for root from 203.0.113.45 port 44428 ssh2",
-  "hostname": "srv-lab01",
-  "username": "root",
-  "src_ip": "203.0.113.45",
-  "src_port": "44428",
-  "auth_method": "password",
-  "alert_type": "root_login",
-  "severity": "CRITICAL",
-  "tags": ["_geoip_lookup_failure"]
-}
-```
-
-Le tag `_geoip_lookup_failure` est normal : les plages de documentation n'ont pas de géolocalisation.
-
-## 5. Détection
-
-```bash
 python scripts/detect.py --lookback 10m
 ```
 
+## Ce qui arrive dans Elasticsearch
+
+Les 20 lignes sont toutes parsées par Logstash : aucune ligne n'est restée brute. Chacune reçoit un type (`ssh_failed`, `root_login`, `su_failed`…) et une sévérité, avec les champs `src_ip`, `username` et `hostname` extraits.
+
+## Les alertes
+
 ```
-[*] 2 règle(s) chargée(s) : SSH-001, AUTH-002 — fenêtre 10m
-
-  [HIGH    ] SSH-001 — Brute force SSH : 12 échecs en 60s depuis 203.0.113.45 (utilisateur ciblé : root)
-  [CRITICAL] AUTH-002 — Connexion suspecte (root_login) : root depuis 203.0.113.45
-  [MEDIUM  ] AUTH-002 — Connexion suspecte (new_ip_login) : alessandro depuis 192.168.56.10
-  [MEDIUM  ] AUTH-002 — Connexion suspecte (new_ip_login) : root depuis 203.0.113.45
-
-[+] 4 alerte(s) levée(s)
+[HIGH    ] SSH-001 - Brute force SSH : 12 échecs en 60s depuis 203.0.113.45 (utilisateur ciblé : root)
+[CRITICAL] AUTH-002 - Connexion suspecte (root_login) : root depuis 203.0.113.45
+[MEDIUM  ] AUTH-002 - Connexion suspecte (new_ip_login) : alessandro depuis 192.168.56.10
+[MEDIUM  ] AUTH-002 - Connexion suspecte (new_ip_login) : root depuis 203.0.113.45
 ```
 
-Les 4 alertes sont aussi écrites dans l'index `siem-alerts`, consultable dans Kibana (vue « SIEM — Alertes »).
+Les alertes sont aussi écrites dans l'index `siem-alerts`, visible dans Kibana.
 
-**Lecture analyste :** la combinaison *SSH-001 puis AUTH-002/root_login sur la même IP* raconte toute l'histoire : un mot de passe root a été deviné. Sur un vrai serveur, je bloquerais `203.0.113.45`, je couperais la session, je changerais le mot de passe root et je désactiverais `PermitRootLogin`.
+Les deux premières racontent l'attaque : un mot de passe root a été deviné. Sur un vrai serveur, je bloquerais l'IP, je couperais la session, je changerais le mot de passe et je désactiverais la connexion root en SSH.
 
-## 6. Analyse des résultats
+## Ce qui est détecté, et ce qui ne l'est pas
 
-| Étape | Détectée ? | Commentaire |
-|---|---|---|
-| Activité admin | Non (normal) | Mais elle déclenche `new_ip_login` au premier lancement |
-| Reconnaissance (invalid users) | **Non** | Parsée, mais aucune règle ne la couvre |
-| Brute force | **Oui** | SSH-001, seuil franchi largement (12 > 5) |
-| Connexion root | **Oui** | AUTH-002 / root_login, CRITICAL |
-| `su` échoué | **Non** | Parsé en CRITICAL, mais aucune règle ne lève d'alerte |
+- Le brute force et la connexion root sont bien détectés.
+- Les comptes inexistants et le `su` raté sont parsés mais ne déclenchent aucune règle : 2 étapes sur 5 passent inaperçues.
+- L'alerte `new_ip_login` sur l'IP de l'admin est un faux positif. Au premier lancement, il n'y a pas d'historique donc toutes les IP sont nouvelles. En relançant le scénario quelques minutes plus tard, elle ne se déclenche plus.
 
-**Faux positif :** `new_ip_login` sur `192.168.56.10`, l'IP de l'admin. Il n'y a pas encore d'historique, donc toutes les IP sont « nouvelles ». Il faudrait une période d'apprentissage (baseline) ou une liste d'IP connues.
+## Problèmes rencontrés
 
-Vérification : en relançant le même scénario quelques minutes plus tard, seules SSH-001 et root_login se déclenchent. `new_ip_login` se tait, car les deux IP sont maintenant dans l'historique.
+La première version ne marchait pas de bout en bout :
 
-## 7. Problèmes rencontrés et corrections
+- Les logs n'arrivaient pas : le port TCP 5000 n'était pas publié par Docker, seulement l'UDP.
+- Kibana ne démarrait pas : le mot de passe du compte `kibana_system` n'était pas défini.
+- Les règles ne trouvaient rien : le script d'envoi et les règles n'utilisaient pas les mêmes noms d'événements. J'ai centralisé le parsing dans Logstash.
+- Les règles YAML n'étaient lues par rien : j'ai écrit `detect.py`.
+- Un mot de passe était écrit en dur dans `kibana.yml` : il est maintenant dans le fichier `.env`, qui n'est pas versionné.
+- Les services étaient accessibles depuis tout le réseau : les ports sont liés à `127.0.0.1`. Je l'ai vérifié avec mon [toolkit](https://github.com/bonberoww/cyber-automation-toolkit) : aucun port ouvert depuis l'adresse réseau de la machine.
 
-La première version du lab ne fonctionnait pas de bout en bout. Ce que j'ai trouvé en testant :
+## Pour la suite
 
-| Problème | Cause | Correction |
-|---|---|---|
-| Aucun log n'arrivait dans Elasticsearch | Le script envoyait en TCP sur le port 5000, mais `docker-compose` n'exposait que `5000/udp` | Port exposé en TCP et UDP, codec `json_lines` |
-| Kibana refusait de démarrer | Le mot de passe du compte `kibana_system` n'était jamais défini | Conteneur `setup` one-shot qui le configure via l'API |
-| Les règles ne trouvaient rien | Le script d'ingestion classait en `ssh_failed`, Logstash et les règles attendaient `ssh_bruteforce` | Parsing centralisé dans Logstash, un seul vocabulaire partout |
-| Les règles YAML ne servaient à rien | Aucun composant ne les lisait | Écriture de `detect.py`, qui charge et exécute les règles |
-| Mot de passe en clair dans `kibana.yml` | Valeur codée en dur | Secrets uniquement dans `.env` (ignoré par git), `.env.example` fourni |
-| Elasticsearch, Logstash et Kibana publiés sur toutes les interfaces | Comportement par défaut de Docker (`0.0.0.0`) | Ports liés à `127.0.0.1`, vérifié avec le scanner du Cyber Automation Toolkit : 0 port ouvert depuis l'IP LAN, 3 en local |
+- Une règle pour les comptes inexistants testés depuis la même IP (T1110.003).
+- Une règle pour chaque `su` raté (T1548).
+- Une seule alerte critique quand un brute force est suivi d'un succès sur la même IP.
+- Une liste d'IP connues pour supprimer le faux positif.
+- Des vrais logs, avec Filebeat depuis une VM Ubuntu, et un tableau de bord Kibana.
 
-## 8. Améliorations prévues
+## Ce que j'en retiens
 
-- [ ] Règle **RECON-003** : plus de 3 `Invalid user` depuis la même IP en 5 minutes (T1110.003)
-- [ ] Règle **PRIV-004** : alerte sur chaque `su_failed` (T1548)
-- [ ] Corrélation : brute force **suivi** d'un succès sur la même IP → une seule alerte CRITICAL
-- [ ] Baseline des IP connues pour supprimer le faux positif `new_ip_login`
-- [ ] Ingestion de vrais logs avec Filebeat depuis une VM Ubuntu
-- [ ] Dashboard Kibana (top IP sources, échecs par minute)
-
-## 9. Captures
-
-> À ajouter : vue Discover filtrée sur `alert_type : ssh_failed`, vue « SIEM — Alertes ».
-> Dossier : `docs/img/`
-
-## 10. Ce que j'en retiens
-
-- Un SIEM ne vaut que par son **parsing** : sans champs propres (`src_ip`, `username`), aucune règle n'est possible.
-- Tester avec un scénario connu est le seul moyen de savoir ce qui est réellement détecté. Ici, 2 étapes sur 5 passaient inaperçues.
-- Les faux positifs arrivent dès la première exécution : il faut prévoir le tuning dès la conception de la règle.
+Sans parsing propre, aucune règle n'est possible. Et il faut tester avec un scénario dont on connaît la réponse : c'est comme ça que j'ai vu que 2 étapes sur 5 n'étaient pas détectées.
